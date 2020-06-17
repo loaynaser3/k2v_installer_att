@@ -1,0 +1,118 @@
+pipeline {
+    agent any
+    parameters {
+        string(name: 'ssh_usr', description: '# ssh user in slave machines', defaultValue : "root")        
+        string(name: 'ssh_key', description: '''# Master server ssh_key
+        '''  , defaultValue : "/root/.ssh/id_rsa")
+        choice (choices: ['local', 'download'], name: 'packageOptions')
+        booleanParam(name: 'credentials', description: 'insert only if downloadin need user and pass' , defaultValue : false)
+        string(name: 'download_usr', description: '', defaultValue : "fabric_pipeline")        
+        string(name: 'download_pass', description: '', defaultValue : "Q1w2e3r4t5")          
+        string(name: 'packages_location', description: ' ' , defaultValue : "/home/")
+//         choice (choices: ['y', 'n'], description: '''# kafka message broker y/n
+// ''', name: 'KAFKA_MESSAGES_BROKER')        
+        string(name: 'BOOTSTRAP_SERVERS', description: '''# in case of using existing kafka cluster please provide the BOOTSTRAP_SERVERS
+# otherwise leave it blank
+# ex :
+#     BOOTSTRAP_SERVERS=172.31.25.86:9093,172.31.26.104:9093,172.31.40.112:9093
+
+#### fabric ####''')
+
+        
+        string(name: 'fabric_usr', description: ' ' , defaultValue : "k2view")
+        string(name: 'fabric_path', description: ' ' , defaultValue : "/home/k2view")
+        // choice (choices: ['y', 'n'], description: '''# fabric multi DCs y/n ''', name: 'fabric_multi_DC')
+        string(name: 'fabric_DC1_IP', description: ' ' , defaultValue : "10.21.3.36")
+        string(name: 'fabric_RF1', description: ' ' , defaultValue : "1")
+        string(name: 'fabric_DC2_IP', description: ' ' , defaultValue : "10.21.3.14")
+        string(name: 'fabric_RF2', description: ' ' , defaultValue : "1")
+        string(name: 'fabric_download_link', description: 'insert download link only if you dont have the package localy ' , defaultValue : "http://")
+        string(name: 'fabric_package', description: ' ' , defaultValue : "fabric-5.4.7_1-201912081751.tar.gz")
+        string(name: 'DC1_name', description: ' ' , defaultValue : "DC1")
+        string(name: 'cassandra_DC1_IP', description: ' ' , defaultValue : "10.21.3.36")
+        string(name: 'DC2_name', description: ' ' , defaultValue : "DC2")
+        string(name: 'cassandra_DC2_IP', description: ' ' , defaultValue : "10.21.3.14")
+
+
+    }
+    options {
+        disableConcurrentBuilds()
+    }
+    stages {
+        stage('prepare config.ini'){
+            steps{
+                println("inserting configuration")
+                script {
+                    sh(script : "echo '''############## config.ini ##############\n\n\n############## general ##############\n\n# ssh user in slave machines''' > config.ini", returnStdout: true)
+                    sh(script : "echo 'ssh_usr=$params.ssh_usr' >> config.ini", returnStdout: true)
+                    // sh(script : "echo '\n# kafka message broker y/n' >> config.ini", returnStdout: true)
+                    // sh(script : "echo 'KAFKA_MESSAGES_BROKER=$params.KAFKA_MESSAGES_BROKER' >> config.ini", returnStdout: true)
+                    sh(script : "echo '''\n# in case of using existing kafka cluster please provide the BOOTSTRAP_SERVERS\n# otherwise leave it blank\n\n# ex :\n#     BOOTSTRAP_SERVERS=172.31.25.86:9093,172.31.26.104:9093,172.31.40.112:9093''' >> config.ini", returnStdout: true)
+                    if ("$params.BOOTSTRAP_SERVERS"?.trim()) {
+                        sh(script : "echo 'BOOTSTRAP_SERVERS=$params.BOOTSTRAP_SERVERS' >> config.ini", returnStdout: true)
+                    }else {
+                        sh(script : "echo '#BOOTSTRAP_SERVERS=' >> config.ini", returnStdout: true)
+                    }
+                    
+                    
+                    sh(script : "echo '# Master server ssh_key' >> config.ini", returnStdout: true)
+                    sh(script : "echo 'ssh_key=$params.ssh_key' >> config.ini", returnStdout: true)
+                    sh(script : "echo 'packages_location=$params.packages_location' >> config.ini", returnStdout: true)
+
+
+                    sh(script : "echo '\n############## fabric ##############\n' >> config.ini", returnStdout: true)
+                    sh(script : "echo 'fabric_usr=$params.fabric_usr' >> config.ini", returnStdout: true)
+                    sh(script : "echo '# fabric multi DCs y/n' >> config.ini", returnStdout: true)
+                    // sh(script : "echo 'fabric_multi_DC=$params.fabric_multi_DC' >> config.ini", returnStdout: true)
+                    sh(script : "echo 'fabric_DC1_IP=$params.fabric_DC1_IP' >> config.ini", returnStdout: true)
+                    sh(script : "echo 'fabric_DC2_IP=$params.fabric_DC2_IP' >> config.ini", returnStdout: true)
+                    sh(script : "echo 'fabric_RF1=$params.fabric_RF1' >> config.ini", returnStdout: true)
+                    sh(script : "echo 'fabric_RF2=$params.fabric_RF2' >> config.ini", returnStdout: true)
+                    sh(script : "echo 'fabric_package=$params.fabric_package' >> config.ini", returnStdout: true)
+                    sh(script : "echo 'fabric_path=$params.fabric_path' >> config.ini", returnStdout: true)
+
+                    sh(script : "echo '\n############## cassandra ##############\n' >> config.ini", returnStdout: true)
+                    sh(script : "echo 'cassandra_DC1_IP=$params.cassandra_DC1_IP' >> config.ini", returnStdout: true)
+                    sh(script : "echo 'cassandra_DC2_IP=$params.cassandra_DC2_IP' >> config.ini", returnStdout: true)
+                    sh(script : "echo 'DC1_name=$params.DC1_name' >> config.ini", returnStdout: true)
+                    sh(script : "echo 'DC2_name=$params.DC2_name' >> config.ini", returnStdout: true)
+                    
+                    sh(script : "chmod +x *.sh", returnStdout: true)
+                }
+            }
+        }
+        stage('download packages'){
+            when {
+                    environment name: 'packageOptions', value: 'download'
+                }
+            steps{
+                script {
+                    if("$params.credentials" == "true"){
+                        sh(script : "curl -u $params.download_usr:$params.download_pass -o $params.packages_location$params.fabric_package $params.fabric_download_link", returnStdout: true)
+                    }else{
+                        sh(script : "curl $params.fabric_download_link -o $params.packages_location$params.fabric_package", returnStdout: true)
+                    }
+                }
+            }
+        }
+        stage('install fabric'){
+            steps{
+                script {
+                    println "################"
+                    println "installing fabric"
+                    println "it may take a while go for a ciggerate"
+                    println "################"
+                    if ("$params.fabric_version" == "5.X") sh(script : "./fabric.sh", returnStdout: true)
+                    if ("$params.fabric_version" == "6.X") sh(script : "./fabric6.sh", returnStdout: true)
+
+                    def list = "$params.fabric_DC1_IP".trim().split(',')[0]
+                    println("testing on node : " + list)
+                    sh "scp -i $params.ssh_key fabric_check_*.sh $params.ssh_usr@$list:/$fabric_path"
+                    cmd="$fabric_path/fabric_check_*.sh"
+                    sh "ssh -i $params.ssh_key $ssh_usr@$list $cmd"
+                }
+            }
+        }
+
+    }
+}

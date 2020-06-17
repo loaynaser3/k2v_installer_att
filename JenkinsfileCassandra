@@ -1,0 +1,101 @@
+pipeline {
+    agent any
+    parameters {
+        string(name: 'ssh_usr', description: '# ssh user in slave machines', defaultValue : "root")        
+        string(name: 'ssh_key', description: '''# Master server ssh_key
+        '''  , defaultValue : "/root/.ssh/id_rsa")
+        choice (choices: ['local', 'download'], name: 'packageOptions')
+        booleanParam(name: 'credentials', description: 'insert only if downloadin need user and pass' , defaultValue : false)
+        string(name: 'download_usr', description: '', defaultValue : "fabric_pipeline")        
+        string(name: 'download_pass', description: '', defaultValue : "Q1w2e3r4t5")        
+        string(name: 'packages_location', description: '''
+        #### cassandra ####''' , defaultValue : "/home/")
+        
+        string(name: 'cassandra_usr', description: ' ' , defaultValue : "cassandra")
+        string(name: 'cassandra_path', description: ' ' , defaultValue : "/home/cassandra")
+//         choice (choices: ['y', 'n'], description: '''# multi DCs y/n
+//  ''', name: 'cassandra_multi_DC')
+        string(name: 'clusterName', description: ' ' , defaultValue : "Cassandra")
+        string(name: 'cassandra_seed', description: '''# cassandra_seed is the first node will start
+''', defaultValue : "10.21.3.36")
+        string(name: 'DC1_name', description: ' ' , defaultValue : "DC1")
+        string(name: 'cassandra_DC1_IP', description: ' ' , defaultValue : "10.21.3.36")
+        string(name: 'cass_RF1', description: ' ' , defaultValue : "1")
+        string(name: 'DC2_name', description: ' ' , defaultValue : "DC2")
+        string(name: 'cassandra_DC2_IP', description: ' ' , defaultValue : "10.21.3.14")
+        string(name: 'cass_RF2', description: ' ' , defaultValue : "1")
+        string(name: 'cassandra_download_link', description: 'insert download link only if you dont have the package localy ' , defaultValue : "http://")
+        string(name: 'cassandra_package',   description: '', defaultValue: "k2v_cassandra-3.11.4_vanilla_01.tar.gz")
+        
+    
+
+    }
+    options {
+        disableConcurrentBuilds()
+    }
+    stages {
+        stage('prepare config.ini'){
+            steps{
+                println("inserting configuration")
+                script {
+                    sh(script : "echo '''############## config.ini ##############\n\n\n############## general ##############\n\n# ssh user in slave machines''' > config.ini", returnStdout: true)
+                    sh(script : "echo 'ssh_usr=$params.ssh_usr' >> config.ini", returnStdout: true)                    
+                    
+                    
+                    sh(script : "echo '# Master server ssh_key' >> config.ini", returnStdout: true)
+                    sh(script : "echo 'ssh_key=$params.ssh_key' >> config.ini", returnStdout: true)
+                    sh(script : "echo 'packages_location=$params.packages_location' >> config.ini", returnStdout: true)
+                    sh(script : "echo '\n############## cassandra ##############\n' >> config.ini", returnStdout: true)
+                    sh(script : "echo 'cassandra_usr=$params.cassandra_usr' >> config.ini", returnStdout: true)
+                    sh(script : "echo '# multi DCs y/n' >> config.ini", returnStdout: true)
+                    // sh(script : "echo 'cassandra_multi_DC=$params.cassandra_multi_DC' >> config.ini", returnStdout: true)
+                    sh(script : "echo 'DC1_name=$params.DC1_name' >> config.ini", returnStdout: true)
+                    sh(script : "echo 'DC2_name=$params.DC2_name' >> config.ini", returnStdout: true)
+                    sh(script : "echo '# cassandra_seed is the first node will start' >> config.ini", returnStdout: true)
+                    sh(script : "echo 'cassandra_seed=$params.cassandra_seed' >> config.ini", returnStdout: true)
+                    sh(script : "echo 'cassandra_DC1_IP=$params.cassandra_DC1_IP' >> config.ini", returnStdout: true)
+                    sh(script : "echo 'cassandra_DC2_IP=$params.cassandra_DC2_IP' >> config.ini", returnStdout: true)
+                    sh(script : "echo 'clusterName=$params.clusterName' >> config.ini", returnStdout: true)
+                    sh(script : "echo 'cass_RF1=$params.cass_RF1' >> config.ini", returnStdout: true)
+                    sh(script : "echo 'cass_RF2=$params.cass_RF2' >> config.ini", returnStdout: true)
+                    sh(script : "echo 'cassandra_package=$params.cassandra_package' >> config.ini", returnStdout: true)
+                    sh(script : "echo 'cassandra_path=$params.cassandra_path' >> config.ini", returnStdout: true)
+
+                    sh(script : "chmod +x *.sh", returnStdout: true)
+                }
+            }
+        }
+        stage('download packages'){
+            when {
+                    environment name: 'packageOptions', value: 'download'
+                }
+            steps{
+                script {
+                    if("$params.credentials" == "true"){
+                        sh(script : "curl -u $params.download_usr:$params.download_pass -o $params.packages_location$params.cassandra_package $params.cassandra_download_link", returnStdout: true)
+                    }else{
+                        sh(script : "curl  $params.cassandra_download_link -o $params.packages_location$params.cassandra_package", returnStdout: true)
+                    }
+                }
+            }
+        }
+        stage('install cassandra'){
+            steps{
+                script {
+                    println "################"
+                    println "installing cassandra"
+                    println "it may take a while go grap some coffe"
+                    println "################"
+
+                    sh(script : "./cassandra.sh", returnStdout: true)
+
+                   def list = "$params.cassandra_DC1_IP".trim().split(',')[0]
+                    println("testing on node : " + list)
+                    sh "scp -i $params.ssh_key cassandra_check_*.sh $params.ssh_usr@$list:/$cassandra_path"
+                    cmd="$cassandra_path/cassandra_check_*.sh"
+                    sh "ssh -i $params.ssh_key $ssh_usr@$list $cmd"
+                }
+            }
+        }
+    }
+}
